@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-tls
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: backup-tls
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-tls
+subjects:
+  - kind: ServiceAccount
+    name: backup-tls
+roleRef:
+  kind: ClusterRole
+  name: backup-tls
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-tls
+  namespace: apps
+stringData:
+  rclone.conf: |
+    [b2]
+    type = b2
+    account = {accID}
+    key = {key}
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cron-backup-tls
+spec:
+  schedule: "50 5 * * *"
+  successfulJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-tls
+          restartPolicy: Never
+          containers:
+            - name: backup-tls
+              image: registry.reactis.cloud/backup-tls
+              command:
+                - /restore.sh
+              env:
+                - name: OK_CALLBACK
+                  value: https://healthchecks.reactis.cloud/ping/ca42a894-0000-0000-0000-000000
+              volumeMounts:
+                - mountPath: /root/.config/rclone/rclone.conf
+                  subPath: rclone.conf
+                  name: config
+          volumes:
+            - name: config
+              secret:
+                secretName: backup-tls
+          imagePullSecrets:
+            - name: reactisregistry
+      backoffLimit: 1
